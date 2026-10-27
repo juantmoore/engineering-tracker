@@ -200,6 +200,44 @@ verify_api() {
   show "$(jq -c '.[] | {eventId: .body.eventId, user: .body.user.displayName, change: .body.changelog.items[0] | "\(.field): \(.fromString) -> \(.toString)"}' <<<"$hooks")"
 }
 
+statuses() { curl -s -H "Authorization: Bearer $TRACKER_API_KEY" "$APP/api/issues" | jq -r '.issues[] | "\(.key)=\(.status)"'; }
+
+verify_cron() {
+  section "auto mode cron (curl /api/cron/auto)"
+  local before after diff hooks
+  http GET /api/cron/auto
+  show "no Authorization header -> $STATUS $BODY"
+  check "cron: 401 without CRON_SECRET" '[ "$STATUS" = 401 ]'
+  http GET /api/cron/auto -H "Authorization: Bearer not-the-secret"
+  show "wrong secret -> $STATUS $BODY"
+  check "cron: 401 with the wrong secret" '[ "$STATUS" = 401 ]'
+
+  before=$(statuses)
+  http GET /api/cron/auto -H "Authorization: Bearer $CRON_SECRET"
+  show "auto mode off -> $STATUS $BODY"
+  check "cron with auto mode off: 200, skipped, board unchanged" \
+    '[ "$STATUS" = 200 ] && jq -e ".skipped" <<<"$BODY" >/dev/null && [ "$(statuses)" = "$before" ]'
+
+  if APP_URL="$APP" AUTO_MODE=on ARTIFACTS_DIR="$ARTIFACTS_DIR" node scripts/ui-auto-mode.mjs >"$WORK/auto.log" 2>&1; then :; fi
+  sed -n '1,2p' "$WORK/auto.log"
+  PASSED=$((PASSED + $(grep -c '^  PASS' "$WORK/auto.log"))); FAILED=$((FAILED + $(grep -c '^  FAIL' "$WORK/auto.log")))
+
+  for run in 1 2 3; do
+    curl -s -X POST "$RECEIVER/__reset" >/dev/null
+    before=$(statuses)
+    http GET /api/cron/auto -H "Authorization: Bearer $CRON_SECRET"
+    after=$(statuses)
+    diff=$(diff <(echo "$before") <(echo "$after") | grep '^[<>]' || true)
+    sleep 1
+    hooks=$(curl -s "$RECEIVER/__requests")
+    show "run $run -> $STATUS $BODY" "before/after:" "$diff"
+    check "cron run $run moved exactly one ticket to a different status" \
+      '[ "$STATUS" = 200 ] && [ "$(grep -c "^<" <<<"$diff")" = 1 ] && [ "$(grep -c "^>" <<<"$diff")" = 1 ] && grep -q "$(jq -r .moved.key <<<"$BODY")=" <<<"$diff"'
+    check "cron run $run fired exactly one webhook from Auto mode" \
+      '[ "$(jq length <<<"$hooks")" = 1 ] && [ "$(jq -r ".[0].body.user.displayName" <<<"$hooks")" = "Auto mode" ]'
+  done
+}
+
 REDIS_UP=""
 start_redis && REDIS_UP=1
 if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
@@ -213,6 +251,7 @@ verify_scaffold
 verify_store
 verify_board
 verify_api
+verify_cron
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
