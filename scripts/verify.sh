@@ -34,7 +34,12 @@ bg() {
   PIDS+=($!)
 }
 
-port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+port_open() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+# port_free PORT: true once nothing listens on PORT, waiting up to 10s for a previous run to exit.
+port_free() {
+  for _ in $(seq 1 40); do port_open "$1" || return 0; sleep 0.25; done
+  return 1
+}
 trap cleanup EXIT
 
 section() { printf '\n== %s ==\n' "$1"; }
@@ -253,7 +258,6 @@ verify_restart() {
   local before after
   before=$(statuses)
   kill -- "-$APP_PID" 2>/dev/null
-  for _ in $(seq 1 40); do port_free "$APP_PORT" && break; sleep 0.25; done
   SKIP_BUILD=1 start_app
   after=$(statuses)
   show "store badge: $(curl -s "$APP/" | grep -o 'Upstash Redis\|In-memory store' | head -1)"
