@@ -91,6 +91,24 @@ verify_store() {
   show "$(grep -E 'Tests' "$WORK/store.log")"
 }
 
+ARTIFACTS_DIR="${ARTIFACTS_DIR:-artifacts}"
+
+# Runs scripts/ui-check.mjs and folds its PASS/FAIL lines into the totals.
+run_ui_check() {
+  APP_URL="$APP" ARTIFACTS_DIR="$ARTIFACTS_DIR" node scripts/ui-check.mjs >"$WORK/ui.log" 2>&1
+  cat "$WORK/ui.log"
+  PASSED=$((PASSED + $(grep -c '^  PASS' "$WORK/ui.log")))
+  FAILED=$((FAILED + $(grep -c '^  FAIL' "$WORK/ui.log")))
+  if ! grep -qE '^  (PASS|FAIL)' "$WORK/ui.log"; then fail "ui-check produced results"; fi
+}
+
+verify_board() {
+  section "board (headless Chrome, screenshots in $ARTIFACTS_DIR/)"
+  http GET /
+  check "server-rendered board contains WIT-10 and WIT-17" 'grep -q "WIT-10" <<<"$BODY" && grep -q "WIT-17" <<<"$BODY"'
+  run_ui_check
+}
+
 REDIS_UP=""
 start_redis && REDIS_UP=1
 if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
@@ -101,6 +119,7 @@ fi
 start_app
 verify_scaffold
 verify_store
+verify_board
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
