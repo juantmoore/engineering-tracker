@@ -41,7 +41,7 @@ section() { printf '\n== %s ==\n' "$1"; }
 pass() { PASSED=$((PASSED + 1)); printf '  PASS  %s\n' "$1"; }
 fail() { FAILED=$((FAILED + 1)); printf '  FAIL  %s\n' "$1"; }
 check() { if eval "$2"; then pass "$1"; else fail "$1"; fi; }
-show() { printf '        %s\n' "$@"; }
+show() { printf '%s\n' "$@" | sed 's/^/        /'; }
 
 # http METHOD PATH [curl args...]: sets $STATUS and $BODY
 http() {
@@ -143,7 +143,7 @@ api() {
   {
     printf '$ curl -X %s %s%s%s\n' "$method" "$path" "$shown" "${data:+ -d '$data'}"
     printf '%s %s\n\n' "$STATUS" "$(jq -c . <<<"$BODY" 2>/dev/null || echo "$BODY")"
-  } | tee -a "$ARTIFACTS_DIR/api-curl.txt" | sed 's/^/        /'
+  } | tee -a "$ARTIFACTS_DIR/api-curl.txt" | cut -c1-400 | sed '/^$/d; s/^/        /'
   : "$label"
 }
 
