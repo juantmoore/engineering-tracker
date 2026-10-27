@@ -8,6 +8,15 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
-    env: { TRACKER_STORE: "memory" },
+    // Hermetic: ignore whatever the shell (or scripts/verify.sh) exported.
+    env: {
+      TRACKER_STORE: "memory",
+      AGENT_WEBHOOK_URL: "",
+      TRACKER_WEBHOOK_SECRET: "",
+      TRACKER_API_KEY: "",
+      CRON_SECRET: "",
+      TRACKER_BASE_URL: "",
+      WEBHOOK_RETRY_DELAYS_MS: "",
+    },
   },
 });

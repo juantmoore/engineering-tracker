@@ -56,6 +56,15 @@ wait_for() {
   echo "timed out waiting for $url"; exit 1
 }
 
+verify_static() {
+  section "lint, typecheck, unit tests"
+  local step
+  for step in lint typecheck test; do
+    if npm run "$step" >"$WORK/$step.log" 2>&1; then pass "npm run $step"; else fail "npm run $step"; tail -30 "$WORK/$step.log"; fi
+  done
+  show "$(grep -E '^ +(Test Files|Tests) ' "$WORK/test.log")"
+}
+
 start_app() {
   if [ -z "${SKIP_BUILD:-}" ]; then
     section "build"
@@ -63,6 +72,7 @@ start_app() {
   fi
   port_free "$APP_PORT" || { echo "port $APP_PORT is already in use; stop that process first"; exit 1; }
   bg "$WORK/app.log" node_modules/.bin/next start -p "$APP_PORT"
+  APP_PID=$!
   wait_for "$APP/"
 }
 
@@ -238,6 +248,18 @@ verify_cron() {
   done
 }
 
+verify_restart() {
+  section "persistence across a server restart (Redis store)"
+  local before after
+  before=$(statuses)
+  kill -- "-$APP_PID" 2>/dev/null
+  for _ in $(seq 1 40); do port_free "$APP_PORT" && break; sleep 0.25; done
+  SKIP_BUILD=1 start_app
+  after=$(statuses)
+  show "store badge: $(curl -s "$APP/" | grep -o 'Upstash Redis\|In-memory store' | head -1)"
+  check "board state survives a restart of the app process" '[ -n "$before" ] && [ "$before" = "$after" ]'
+}
+
 REDIS_UP=""
 start_redis && REDIS_UP=1
 if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
@@ -245,6 +267,11 @@ if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
   export KV_REST_API_URL="http://127.0.0.1:$SHIM_PORT" KV_REST_API_TOKEN="$SHIM_TOKEN"
 fi
 
+USING_REDIS=""
+[ -n "${KV_REST_API_URL:-}" ] && USING_REDIS=1
+if [ -n "$USING_REDIS" ]; then echo "app store: redis-server via the Upstash REST shim"; else echo "app store: in-memory"; fi
+
+[ -z "${SKIP_BUILD:-}" ] && verify_static
 start_receiver
 start_app
 verify_scaffold
@@ -252,6 +279,7 @@ verify_store
 verify_board
 verify_api
 verify_cron
+[ -n "$USING_REDIS" ] && verify_restart
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
