@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useOptimistic, useState, useTransition } from "react";
-import type { Issue, StatusName, User } from "@/lib/types";
+import type { Delivery, Issue, StatusName, User } from "@/lib/types";
 import { addCommentAction, assignIssueAction, moveIssueAction, resetBoardAction, type ActionResult } from "../actions";
 import { Board } from "./Board";
+import { DeliveriesLog } from "./DeliveriesLog";
 import { IssueDrawer } from "./IssueDrawer";
 
 type Patch = { key: string; status?: StatusName; assignee?: User | null };
@@ -13,11 +14,13 @@ interface Props {
   issues: Issue[];
   users: User[];
   storeKind: "redis" | "memory";
+  deliveries: Delivery[];
+  webhook: { targetHost: string | null; secretSet: boolean };
 }
 
 const REFRESH_MS = 4_000;
 
-export function TrackerApp({ issues, users, storeKind }: Props) {
+export function TrackerApp({ issues, users, storeKind, deliveries, webhook }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -98,6 +101,7 @@ export function TrackerApp({ issues, users, storeKind }: Props) {
 
       <main className="content">
         <Board issues={view} onMove={move} onOpen={setSelectedKey} />
+        <DeliveriesLog deliveries={deliveries} webhook={webhook} />
       </main>
 
       {selected && (
