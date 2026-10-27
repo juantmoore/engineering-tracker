@@ -23,9 +23,18 @@ FAILED=0
 PIDS=()
 
 cleanup() {
-  for pid in "${PIDS[@]:-}"; do [ -n "$pid" ] && kill "$pid" 2>/dev/null; done
+  for pid in "${PIDS[@]:-}"; do [ -n "$pid" ] && kill -- "-$pid" 2>/dev/null; done
   rm -rf "$WORK"
 }
+
+# bg LOG CMD...: start CMD in its own process group so cleanup also stops its children.
+bg() {
+  local log="$1"; shift
+  setsid "$@" >"$log" 2>&1 &
+  PIDS+=($!)
+}
+
+port_free() { ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 trap cleanup EXIT
 
 section() { printf '\n== %s ==\n' "$1"; }
@@ -52,8 +61,8 @@ start_app() {
     section "build"
     if npm run build >"$WORK/build.log" 2>&1; then pass "next build"; else fail "next build"; tail -40 "$WORK/build.log"; exit 1; fi
   fi
-  npx next start -p "$APP_PORT" >"$WORK/app.log" 2>&1 &
-  PIDS+=($!)
+  port_free "$APP_PORT" || { echo "port $APP_PORT is already in use; stop that process first"; exit 1; }
+  bg "$WORK/app.log" node_modules/.bin/next start -p "$APP_PORT"
   wait_for "$APP/"
 }
 
@@ -70,11 +79,10 @@ SHIM_TOKEN="fake-shim-token-$(openssl rand -hex 8)"
 
 start_redis() {
   command -v redis-server >/dev/null || { echo "redis-server not installed; skipping Redis checks"; return 1; }
-  redis-server --port "$REDIS_PORT" --save "" --appendonly no >"$WORK/redis.log" 2>&1 &
-  PIDS+=($!)
-  REDIS_URL="redis://127.0.0.1:$REDIS_PORT" SHIM_PORT="$SHIM_PORT" SHIM_TOKEN="$SHIM_TOKEN" \
-    node scripts/upstash-rest-shim.mjs >"$WORK/shim.log" 2>&1 &
-  PIDS+=($!)
+  port_free "$REDIS_PORT" && port_free "$SHIM_PORT" || { echo "redis or shim port in use"; return 1; }
+  bg "$WORK/redis.log" redis-server --port "$REDIS_PORT" --save "" --appendonly no
+  bg "$WORK/shim.log" env REDIS_URL="redis://127.0.0.1:$REDIS_PORT" SHIM_PORT="$SHIM_PORT" SHIM_TOKEN="$SHIM_TOKEN" \
+    node scripts/upstash-rest-shim.mjs
   for _ in $(seq 1 40); do grep -q "upstash shim" "$WORK/shim.log" && return 0; sleep 0.25; done
   return 1
 }

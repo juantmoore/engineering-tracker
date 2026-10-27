@@ -85,6 +85,6 @@ export async function addComment(key: string, body: unknown, author: unknown): P
     author: (typeof author === "string" && author.trim()) || DEFAULT_COMMENT_AUTHOR,
     created: new Date().toISOString(),
   };
-  await getStore().putIssue({ ...issue, comments: [...issue.comments, comment] });
+  await getStore().putIssue({ ...issue, comments: [...issue.comments, comment], updated: nextUpdated(issue.updated) });
   return comment;
 }

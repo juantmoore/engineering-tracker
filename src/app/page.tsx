@@ -1,7 +1,11 @@
-export default function Home() {
-  return (
-    <main>
-      <h1>Engineering Tracker</h1>
-    </main>
-  );
+import { getStore } from "@/lib/store";
+import { USERS } from "@/lib/users";
+import { TrackerApp } from "./_components/TrackerApp";
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const store = getStore();
+  const issues = await store.listIssues();
+  return <TrackerApp issues={issues} users={USERS} storeKind={store.kind} />;
 }
