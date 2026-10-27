@@ -100,10 +100,21 @@ verify_store() {
 }
 
 ARTIFACTS_DIR="${ARTIFACTS_DIR:-artifacts}"
+RECEIVER_PORT="${RECEIVER_PORT:-4123}"
+RECEIVER="http://127.0.0.1:${RECEIVER_PORT}"
+export AGENT_WEBHOOK_URL="$RECEIVER/jira/events"
+export WEBHOOK_RETRY_DELAYS_MS="${WEBHOOK_RETRY_DELAYS_MS:-300,600}"
+
+start_receiver() {
+  port_free "$RECEIVER_PORT" || { echo "port $RECEIVER_PORT is already in use"; exit 1; }
+  bg "$WORK/receiver.log" env RECEIVER_PORT="$RECEIVER_PORT" node scripts/receiver.mjs
+  wait_for "$RECEIVER/__requests"
+}
 
 # Runs scripts/ui-check.mjs and folds its PASS/FAIL lines into the totals.
 run_ui_check() {
-  APP_URL="$APP" ARTIFACTS_DIR="$ARTIFACTS_DIR" node scripts/ui-check.mjs >"$WORK/ui.log" 2>&1
+  APP_URL="$APP" RECEIVER_URL="$RECEIVER" EXPECT_WEBHOOK_SECRET="$TRACKER_WEBHOOK_SECRET" ARTIFACTS_DIR="$ARTIFACTS_DIR" \
+    node scripts/ui-check.mjs >"$WORK/ui.log" 2>&1
   cat "$WORK/ui.log"
   PASSED=$((PASSED + $(grep -c '^  PASS' "$WORK/ui.log")))
   FAILED=$((FAILED + $(grep -c '^  FAIL' "$WORK/ui.log")))
@@ -111,7 +122,7 @@ run_ui_check() {
 }
 
 verify_board() {
-  section "board (headless Chrome, screenshots in $ARTIFACTS_DIR/)"
+  section "board and webhooks (headless Chrome + local receiver, evidence in $ARTIFACTS_DIR/)"
   http GET /
   check "server-rendered board contains WIT-10 and WIT-17" 'grep -q "WIT-10" <<<"$BODY" && grep -q "WIT-17" <<<"$BODY"'
   run_ui_check
@@ -124,6 +135,7 @@ if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
   export KV_REST_API_URL="http://127.0.0.1:$SHIM_PORT" KV_REST_API_TOKEN="$SHIM_TOKEN"
 fi
 
+start_receiver
 start_app
 verify_scaffold
 verify_store
