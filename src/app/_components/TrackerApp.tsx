@@ -3,7 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useOptimistic, useState, useTransition } from "react";
 import type { Delivery, Issue, StatusName, User } from "@/lib/types";
-import { addCommentAction, assignIssueAction, moveIssueAction, resetBoardAction, type ActionResult } from "../actions";
+import {
+  addCommentAction,
+  assignIssueAction,
+  moveIssueAction,
+  resetBoardAction,
+  runAutoStepNowAction,
+  setAutoModeAction,
+  type ActionResult,
+} from "../actions";
 import { Board } from "./Board";
 import { DeliveriesLog } from "./DeliveriesLog";
 import { IssueDrawer } from "./IssueDrawer";
@@ -15,12 +23,13 @@ interface Props {
   users: User[];
   storeKind: "redis" | "memory";
   deliveries: Delivery[];
+  autoMode: boolean;
   webhook: { targetHost: string | null; secretSet: boolean };
 }
 
 const REFRESH_MS = 4_000;
 
-export function TrackerApp({ issues, users, storeKind, deliveries, webhook }: Props) {
+export function TrackerApp({ issues, users, storeKind, deliveries, autoMode, webhook }: Props) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
@@ -28,6 +37,7 @@ export function TrackerApp({ issues, users, storeKind, deliveries, webhook }: Pr
   const [view, applyPatch] = useOptimistic(issues, (state: Issue[], patch: Patch) =>
     state.map((i) => (i.key === patch.key ? { ...i, ...patch } : i)),
   );
+  const [autoModeView, setAutoModeView] = useOptimistic(autoMode);
 
   // Picks up changes made elsewhere: the agent's API calls, cron runs, other tabs.
   useEffect(() => {
@@ -67,6 +77,16 @@ export function TrackerApp({ issues, users, storeKind, deliveries, webhook }: Pr
     mutate(null, resetBoardAction);
   };
 
+  const toggleAutoMode = () => {
+    const next = !autoModeView;
+    setError(null);
+    startTransition(async () => {
+      setAutoModeView(next);
+      const result = await setAutoModeAction(next);
+      if (result.error) setError(result.error);
+    });
+  };
+
   const selected = view.find((i) => i.key === selectedKey) ?? null;
   const closeDrawer = useCallback(() => setSelectedKey(null), []);
 
@@ -81,6 +101,31 @@ export function TrackerApp({ issues, users, storeKind, deliveries, webhook }: Pr
           </div>
         </div>
         <div className="topbar-actions">
+          <div className="auto-mode" title="When on, the scheduled Vercel Cron job moves one random ticket per run">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoModeView}
+              data-testid="auto-mode-toggle"
+              className={`switch${autoModeView ? " switch-on" : ""}`}
+              onClick={toggleAutoMode}
+            >
+              <span className="switch-knob" />
+            </button>
+            <span>
+              Auto mode <strong>{autoModeView ? "On" : "Off"}</strong>
+            </span>
+          </div>
+          <button
+            type="button"
+            className="button"
+            data-testid="auto-step-now"
+            onClick={() => mutate(null, runAutoStepNowAction)}
+            disabled={isPending}
+            title="Runs the same step as the cron job right now, even when auto mode is off"
+          >
+            Move a random ticket
+          </button>
           <span className={`badge badge-${storeKind}`} title="Where tickets are stored">
             {storeKind === "redis" ? "Upstash Redis" : "In-memory store"}
           </span>

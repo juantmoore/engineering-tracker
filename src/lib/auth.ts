@@ -16,3 +16,7 @@ function bearerMatches(request: Request, secret: string | undefined): boolean {
 export function isApiAuthorized(request: Request): boolean {
   return bearerMatches(request, process.env.TRACKER_API_KEY);
 }
+/** Vercel Cron sends `Authorization: Bearer ${CRON_SECRET}`. Fails closed when unset. */
+export function isCronAuthorized(request: Request): boolean {
+  return bearerMatches(request, process.env.CRON_SECRET);
+}

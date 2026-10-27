@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getStore } from "./store";
-import { statusByName, type Comment, type Issue, type User } from "./types";
-import { findUser } from "./users";
+import { STATUSES, statusByName, type Comment, type Issue, type StatusName, type User } from "./types";
+import { AUTO_ACTOR, findUser } from "./users";
 import { assigneeChange, buildIssueUpdatedEvent, dispatchWebhook, statusChange } from "./webhook";
 
 export class TrackerError extends Error {
@@ -88,4 +88,27 @@ export async function addComment(key: string, body: unknown, author: unknown): P
   };
   await getStore().putIssue({ ...issue, comments: [...issue.comments, comment], updated: nextUpdated(issue.updated) });
   return comment;
+}
+
+export async function setAutoMode(on: boolean): Promise<void> {
+  const store = getStore();
+  await store.setSettings({ ...(await store.getSettings()), autoMode: on });
+}
+
+export interface AutoStepResult {
+  moved: { key: string; from: StatusName; to: StatusName } | null;
+  skipped?: string;
+}
+
+/** Moves one random ticket to a different random status. Skips when auto mode is off unless forced. */
+export async function runAutoStep({ force = false, rng = Math.random } = {}): Promise<AutoStepResult> {
+  const store = getStore();
+  if (!force && !(await store.getSettings()).autoMode) return { moved: null, skipped: "Auto mode is off" };
+  const issues = await store.listIssues();
+  if (issues.length === 0) return { moved: null, skipped: "No issues" };
+  const pick = issues[Math.floor(rng() * issues.length)];
+  const options = STATUSES.filter((s) => s.name !== pick.status);
+  const to = options[Math.floor(rng() * options.length)].name;
+  await transitionIssue(pick.key, to, AUTO_ACTOR);
+  return { moved: { key: pick.key, from: pick.status, to } };
 }

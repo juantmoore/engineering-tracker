@@ -17,13 +17,18 @@ function hostOf(url: string | null) {
 
 export default async function Home() {
   const store = getStore();
-  const [issues, deliveries] = await Promise.all([store.listIssues(), store.listDeliveries(20)]);
+  const [issues, deliveries, settings] = await Promise.all([
+    store.listIssues(),
+    store.listDeliveries(20),
+    store.getSettings(),
+  ]);
   return (
     <TrackerApp
       issues={issues}
       users={USERS}
       storeKind={store.kind}
       deliveries={deliveries}
+      autoMode={settings.autoMode}
       webhook={{ targetHost: hostOf(webhookTarget()), secretSet: Boolean(webhookSecret()) }}
     />
   );

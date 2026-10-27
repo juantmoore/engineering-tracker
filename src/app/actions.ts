@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getStore } from "@/lib/store";
-import { addComment, assignIssue, TrackerError, transitionIssue } from "@/lib/tracker";
+import { addComment, assignIssue, runAutoStep, setAutoMode, TrackerError, transitionIssue } from "@/lib/tracker";
 import { UI_ACTOR } from "@/lib/users";
 
 export interface ActionResult {
@@ -36,4 +36,12 @@ export async function addCommentAction(key: string, body: string) {
 
 export async function resetBoardAction() {
   return run(() => getStore().reset());
+}
+
+export async function setAutoModeAction(on: boolean) {
+  return run(() => setAutoMode(on));
+}
+
+export async function runAutoStepNowAction() {
+  return run(() => runAutoStep({ force: true }));
 }
