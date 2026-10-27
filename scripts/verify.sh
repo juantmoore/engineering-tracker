@@ -64,8 +64,43 @@ verify_scaffold() {
   check "page title is Engineering Tracker" 'grep -q "<title>Engineering Tracker</title>" <<<"$BODY"'
 }
 
+REDIS_PORT="${REDIS_PORT:-6390}"
+SHIM_PORT="${SHIM_PORT:-8079}"
+SHIM_TOKEN="fake-shim-token-$(openssl rand -hex 8)"
+
+start_redis() {
+  command -v redis-server >/dev/null || { echo "redis-server not installed; skipping Redis checks"; return 1; }
+  redis-server --port "$REDIS_PORT" --save "" --appendonly no >"$WORK/redis.log" 2>&1 &
+  PIDS+=($!)
+  REDIS_URL="redis://127.0.0.1:$REDIS_PORT" SHIM_PORT="$SHIM_PORT" SHIM_TOKEN="$SHIM_TOKEN" \
+    node scripts/upstash-rest-shim.mjs >"$WORK/shim.log" 2>&1 &
+  PIDS+=($!)
+  for _ in $(seq 1 40); do grep -q "upstash shim" "$WORK/shim.log" && return 0; sleep 0.25; done
+  return 1
+}
+
+verify_store() {
+  section "store (real redis-server through the Upstash REST protocol)"
+  if [ -z "$REDIS_UP" ]; then fail "redis-server available"; return; fi
+  if TEST_REDIS_REST_URL="http://127.0.0.1:$SHIM_PORT" TEST_REDIS_REST_TOKEN="$SHIM_TOKEN" \
+    npx vitest run tests/store.test.ts >"$WORK/store.log" 2>&1; then
+    pass "store suite passes on memory and redis backends"
+  else
+    fail "store suite on redis"; tail -30 "$WORK/store.log"
+  fi
+  show "$(grep -E 'Tests' "$WORK/store.log")"
+}
+
+REDIS_UP=""
+start_redis && REDIS_UP=1
+if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
+  unset TRACKER_STORE
+  export KV_REST_API_URL="http://127.0.0.1:$SHIM_PORT" KV_REST_API_TOKEN="$SHIM_TOKEN"
+fi
+
 start_app
 verify_scaffold
+verify_store
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
