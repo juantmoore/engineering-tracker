@@ -128,6 +128,78 @@ verify_board() {
   run_ui_check
 }
 
+# api LABEL METHOD PATH AUTH [JSON]: curl the API, print the exchange, set $STATUS/$BODY.
+# AUTH is none, bad or good. The real key is never printed.
+api() {
+  local label="$1" method="$2" path="$3" auth="$4" data="${5:-}" shown
+  local args=(-H "Content-Type: application/json")
+  case "$auth" in
+    good) args+=(-H "Authorization: Bearer $TRACKER_API_KEY"); shown=' -H "Authorization: Bearer $TRACKER_API_KEY"' ;;
+    bad) args+=(-H "Authorization: Bearer not-the-key"); shown=' -H "Authorization: Bearer not-the-key"' ;;
+    *) shown="" ;;
+  esac
+  [ -n "$data" ] && args+=(-d "$data")
+  http "$method" "$path" "${args[@]}"
+  {
+    printf '$ curl -X %s %s%s%s\n' "$method" "$path" "$shown" "${data:+ -d '$data'}"
+    printf '%s %s\n\n' "$STATUS" "$(jq -c . <<<"$BODY" 2>/dev/null || echo "$BODY")"
+  } | tee -a "$ARTIFACTS_DIR/api-curl.txt" | sed 's/^/        /'
+  : "$label"
+}
+
+receiver_count() { curl -s "$RECEIVER/__requests" | jq length; }
+
+verify_api() {
+  section "write-back API (curl)"
+  : >"$ARTIFACTS_DIR/api-curl.txt"
+  curl -s -X POST "$RECEIVER/__reset" >/dev/null
+
+  api "comment, no key" POST /api/issues/WIT-12/comments none '{"body":"hi","author":"workit-agent"}'
+  check "comments: 401 with no key" '[ "$STATUS" = 401 ] && [ "$(jq -r .error <<<"$BODY")" != null ]'
+  api "comment, bad key" POST /api/issues/WIT-12/comments bad '{"body":"hi","author":"workit-agent"}'
+  check "comments: 401 with a bad key" '[ "$STATUS" = 401 ]'
+  api "assignee, no key" PUT /api/issues/WIT-12/assignee none '{"accountId":"u-sam"}'
+  check "assignee: 401 with no key" '[ "$STATUS" = 401 ]'
+  api "assignee, bad key" PUT /api/issues/WIT-12/assignee bad '{"accountId":"u-sam"}'
+  check "assignee: 401 with a bad key" '[ "$STATUS" = 401 ]'
+  api "transition, bad key" POST /api/issues/WIT-12/transitions bad '{"status":"Done"}'
+  check "transitions: 401 with a bad key" '[ "$STATUS" = 401 ]'
+  api "list, no key" GET /api/issues none
+  check "GET /api/issues: 401 with no key" '[ "$STATUS" = 401 ]'
+  sleep 1
+  check "rejected calls fired no webhook" '[ "$(receiver_count)" = 0 ]'
+
+  api "list" GET /api/issues good
+  check "GET /api/issues: 200 with 8 issues" '[ "$STATUS" = 200 ] && [ "$(jq ".issues | length" <<<"$BODY")" = 8 ]'
+  api "users" GET /api/users good
+  check "GET /api/users: 200 with users" '[ "$STATUS" = 200 ] && jq -e ".users[] | select(.accountId == \"u-sam\")" <<<"$BODY" >/dev/null'
+
+  api "comment" POST /api/issues/WIT-12/comments good '{"body":"Reviewed the rate limiter, looks good.","author":"workit-agent"}'
+  check "comments: 201 with the Comment" '[ "$STATUS" = 201 ] && jq -e ".id and .created and .author == \"workit-agent\"" <<<"$BODY" >/dev/null'
+  api "assignee" PUT /api/issues/WIT-12/assignee good '{"accountId":"u-sam"}'
+  check "assignee: 200 and Issue assigned to u-sam" '[ "$STATUS" = 200 ] && [ "$(jq -r .assignee.accountId <<<"$BODY")" = u-sam ]'
+  api "unassign" PUT /api/issues/WIT-12/assignee good '{"accountId":null}'
+  check "assignee: null unassigns" '[ "$STATUS" = 200 ] && [ "$(jq -r .assignee <<<"$BODY")" = null ]'
+  api "transition" POST /api/issues/WIT-12/transitions good '{"status":"Done"}'
+  check "transitions: 200 and Issue moved to Done" '[ "$STATUS" = 200 ] && [ "$(jq -r .status <<<"$BODY")" = Done ]'
+  api "get" GET /api/issues/WIT-12 good
+  check "GET /api/issues/WIT-12 reflects the comment and transition" \
+    '[ "$(jq -r .status <<<"$BODY")" = Done ] && jq -e ".comments[-1].body | startswith(\"Reviewed\")" <<<"$BODY" >/dev/null'
+
+  api "unknown issue" GET /api/issues/WIT-999 good
+  check "unknown issue: 404 with error" '[ "$STATUS" = 404 ] && jq -e .error <<<"$BODY" >/dev/null'
+  api "bad status" POST /api/issues/WIT-12/transitions good '{"status":"Shipped"}'
+  check "bad status: 400 with error" '[ "$STATUS" = 400 ] && jq -e .error <<<"$BODY" >/dev/null'
+  api "unknown user" PUT /api/issues/WIT-12/assignee good '{"accountId":"u-ghost"}'
+  check "unknown user: 400" '[ "$STATUS" = 400 ]'
+
+  sleep 1.5
+  local hooks; hooks=$(curl -s "$RECEIVER/__requests")
+  check "API writes fired 3 webhooks (assign, unassign, transition), user = the agent" \
+    '[ "$(jq length <<<"$hooks")" = 3 ] && [ "$(jq -r "[.[].body.user.accountId] | unique | join(\",\")" <<<"$hooks")" = workit-agent ]'
+  show "$(jq -c '.[] | {eventId: .body.eventId, user: .body.user.displayName, change: .body.changelog.items[0] | "\(.field): \(.fromString) -> \(.toString)"}' <<<"$hooks")"
+}
+
 REDIS_UP=""
 start_redis && REDIS_UP=1
 if [ "$TRACKER_STORE" = redis ] && [ -n "$REDIS_UP" ]; then
@@ -140,6 +212,7 @@ start_app
 verify_scaffold
 verify_store
 verify_board
+verify_api
 
 printf '\n%d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]
