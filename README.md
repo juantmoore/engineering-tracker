@@ -77,12 +77,13 @@ the store is connected to both, so a preview deployment edits the same board.
 
 ## Auto mode and the cron schedule
 
-`vercel.json` schedules `GET /api/cron/auto` at `0 15 * * *`, once a day at 15:00 UTC. Vercel's Hobby plan
-only allows cron jobs that run at most once per day (and may fire any time within that hour), and more
-frequent schedules fail the deployment. A daily schedule deploys on every plan.
+`vercel.json` schedules `GET /api/cron/auto` at `*/5 * * * *`, every 5 minutes. That needs the project to
+belong to a Vercel Pro or Enterprise team (minimum interval once per minute, invoked within the scheduled
+minute). On a Hobby team this schedule fails the deployment, because Hobby only allows cron jobs that run
+at most once per day; to deploy there, change it to a daily expression such as `0 15 * * *`.
 
-On a Pro or Enterprise plan you can run it as often as once per minute. For a livelier demo, change the
-schedule to `*/5 * * * *` (every 5 minutes) and redeploy.
+While auto mode is on, the board moves about 12 tickets an hour (288 a day), each firing one webhook.
+Turn the toggle off when you are not demoing.
 
 Each run checks `Authorization: Bearer $CRON_SECRET` (Vercel adds this header automatically when
 `CRON_SECRET` is set), then, if the auto mode toggle is on, moves exactly one random ticket to a

@@ -91,7 +91,7 @@ export function TrackerApp({ issues, users, storeKind, deliveries, autoMode, web
   const closeDrawer = useCallback(() => setSelectedKey(null), []);
 
   return (
-    <div className="app">
+    <div className="app" data-pending={isPending ? "true" : "false"}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">W</span>
