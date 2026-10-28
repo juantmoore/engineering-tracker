@@ -27,8 +27,9 @@ export class RedisStore implements TrackerStore {
 
   async listIssues() {
     await this.ensureSeeded();
-    const all = (await this.redis.hgetall<Record<string, string>>(ISSUES)) ?? {};
-    return sortIssues(Object.values(all).map((v) => JSON.parse(v) as Issue));
+    // hvals, not hgetall: with automaticDeserialization off, hgetall returns the raw [field, value, ...] array.
+    const values = ((await this.redis.hvals(ISSUES)) ?? []) as string[];
+    return sortIssues(values.map((v) => JSON.parse(v) as Issue));
   }
 
   async getIssue(key: string) {
