@@ -46,6 +46,8 @@ const openIssue = async (key) => {
   await page.locator(`[data-testid="issue-drawer"][data-key="${key}"]`).waitFor();
 };
 const closeDrawer = () => page.locator('[data-testid="close-drawer"]').click();
+/** The optimistic UI updates instantly; wait until the server action has actually saved. */
+const settled = () => page.locator('.app[data-pending="false"]').waitFor({ timeout: 10_000 });
 const waitForColumn = (key, column) =>
   page.waitForFunction(
     ([k, c]) => document.querySelector(`[data-issue-key="${k}"]`)?.closest("[data-column]")?.getAttribute("data-column") === c,
@@ -69,6 +71,7 @@ try {
   await openIssue("WIT-11");
   await page.locator('[data-testid="issue-drawer"] select[name="status"]').selectOption("In Review");
   await waitForColumn("WIT-11", "In Review");
+  await settled();
   await closeDrawer();
   await page.reload({ waitUntil: "networkidle" });
   const after = await columnOf("WIT-11");
@@ -105,6 +108,7 @@ try {
   // Drag and drop.
   await page.locator('[data-issue-key="WIT-14"]').dragTo(page.locator('[data-column="Blocked"]'));
   await waitForColumn("WIT-14", "Blocked").catch(() => {});
+  await settled();
   await page.reload({ waitUntil: "networkidle" });
   check("drag and drop moves a ticket and persists", (await columnOf("WIT-14")) === "Blocked", `WIT-14 now in ${await columnOf("WIT-14")}`);
   if (RECEIVER) {
@@ -118,6 +122,7 @@ try {
   await openIssue("WIT-11");
   await page.locator('[data-testid="issue-drawer"] select[name="assignee"]').selectOption("u-mei");
   await page.waitForFunction(() => document.querySelector('[data-issue-key="WIT-11"]')?.getAttribute("data-assignee") === "u-mei", null, { timeout: 10_000 }).catch(() => {});
+  await settled();
   if (RECEIVER) {
     const reqs = (await receiver.waitFor(5, 15_000)).slice(2);
     const ids = new Set(reqs.map((r) => r.body?.eventId));

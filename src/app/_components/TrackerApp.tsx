@@ -101,7 +101,7 @@ export function TrackerApp({ issues, users, storeKind, deliveries, autoMode, web
           </div>
         </div>
         <div className="topbar-actions">
-          <div className="auto-mode" title="When on, the scheduled Vercel Cron job moves one random ticket per run">
+          <div className="auto-mode" title="When on, a Vercel Cron job moves one random ticket every 5 minutes">
             <button
               type="button"
               role="switch"
