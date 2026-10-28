@@ -105,6 +105,13 @@ start_redis() {
 verify_store() {
   section "store (real redis-server through the Upstash REST protocol)"
   if [ -z "$REDIS_UP" ]; then fail "redis-server available"; return; fi
+  local shim="http://127.0.0.1:$SHIM_PORT" auth="Authorization: Bearer $SHIM_TOKEN" raw
+  curl -s -X POST "$shim/" -H "$auth" -d '["hset","verify:wire","f1","v1","f2","v2"]' >/dev/null
+  raw=$(curl -s -X POST "$shim/" -H "$auth" -d '["hgetall","verify:wire"]')
+  curl -s -X POST "$shim/" -H "$auth" -d '["del","verify:wire"]' >/dev/null
+  show "shim HGETALL reply: $raw"
+  check "shim relays raw Redis replies like Upstash (HGETALL is a flat array)" \
+    '[ "$(jq -c .result <<<"$raw")" = "[\"f1\",\"v1\",\"f2\",\"v2\"]" ]'
   if TEST_REDIS_REST_URL="http://127.0.0.1:$SHIM_PORT" TEST_REDIS_REST_TOKEN="$SHIM_TOKEN" \
     npx vitest run tests/store.test.ts >"$WORK/store.log" 2>&1; then
     pass "store suite passes on memory and redis backends"
