@@ -90,13 +90,9 @@ describe("auto mode", () => {
 });
 
 describe("vercel.json", () => {
-  it("schedules the cron route at most once a day so it deploys on the Hobby plan", () => {
+  it("schedules the cron route every 5 minutes (needs a Pro or Enterprise team)", () => {
     const config = JSON.parse(readFileSync(new URL("../vercel.json", import.meta.url), "utf8"));
-    const job = config.crons.find((c: { path: string }) => c.path === "/api/cron/auto");
-    expect(job).toBeDefined();
-    const [minute, hour, dom, month, dow] = job.schedule.split(" ");
-    expect(minute).toMatch(/^\d+$/);
-    expect(hour).toMatch(/^\d+$/);
-    expect([dom, month, dow]).toEqual(["*", "*", "*"]);
+    const jobs = config.crons.filter((c: { path: string }) => c.path === "/api/cron/auto");
+    expect(jobs).toEqual([{ path: "/api/cron/auto", schedule: "*/5 * * * *" }]);
   });
 });
